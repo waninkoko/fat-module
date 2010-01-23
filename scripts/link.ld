@@ -6,7 +6,7 @@ ENTRY(_start)
 MEMORY {
 	ios_info_table	: ORIGIN = 0x0, LENGTH = 0x4000
 	exe(rwx)	: ORIGIN = 0x13730000, LENGTH = 0x8000
-	ram(rwx)	: ORIGIN = 0x13738000, LENGTH = 0x28000
+	ram(rwx)	: ORIGIN = 0x13738000, LENGTH = 0x37000
 }
 
 __exe_start_virt__		= 0x13730000;

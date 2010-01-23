@@ -28,6 +28,7 @@
 #include "fat_wrapper.h"
 #include "ipc.h"
 #include "mem.h"
+#include "syscalls.h"
 #include "types.h"
 
 #include "libfat/fatdir.h"
@@ -83,7 +84,8 @@ void __FAT_CloseDir(DIR_ITER *dir)
 	_FAT_dirclose_r(&fReent, dir);
 
 	/* Free memory */
-	Mem_Free(dir->dirStruct);
+	if (dir->dirStruct)
+		Mem_Free(dir->dirStruct);
 }
 
 
@@ -135,12 +137,18 @@ s32 FAT_Read(s32 fd, void *buffer, u32 len)
 	if (ret < 0)
 		ret = __FAT_GetError();
 
+	/* Flush cache */
+	os_sync_after_write(buffer, len);
+
 	return ret;
 }
 
 s32 FAT_Write(s32 fd, void *buffer, u32 len)
 {
 	s32 ret;
+
+	/* Invalidate cache */
+	os_sync_before_read(buffer, len);
 
 	/* Clear error code */
 	fReent._errno = 0;
@@ -239,6 +247,12 @@ s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
 	/* Close directory */
 	__FAT_CloseDir(&dir);
 
+	/* Flush cache */
+	if (outbuf)
+		os_sync_after_write(outbuf, pos);
+	if (outlen)
+		os_sync_after_write(outbuf, sizeof(u32));
+
 	return 0;
 }
 
@@ -270,7 +284,9 @@ s32 FAT_DeleteDir(const char *dirpath)
 
 	/* Read entries */
 	for (;;) {
-		char   filename[MAX_FILENAME_LENGTH], newpath[MAX_FILENAME_LENGTH];
+		char filename[MAX_FILENAME_LENGTH];
+		char  newpath[MAX_FILENAME_LENGTH];
+
 		struct stat filestat;
 
 		/* Read entry */
@@ -331,6 +347,9 @@ s32 FAT_Stat(const char *path, void *stats)
 	if (ret < 0)
 		ret = __FAT_GetError();
 
+	/* Flush cache */
+	os_sync_after_write(stats, sizeof(struct stat));
+
 	return ret;
 }
 
@@ -346,6 +365,9 @@ s32 FAT_GetVfsStats(const char *path, void *stats)
 	if (ret < 0)
 		ret = __FAT_GetError();
 
+	/* Flush cache */
+	os_sync_after_write(stats, sizeof(struct statvfs));
+
 	return ret;
 }
 
@@ -353,15 +375,17 @@ s32 FAT_GetFileStats(s32 fd, fstats *stats)
 {
 	FILE_STRUCT *fs = (FILE_STRUCT *)fd;
 
-	if (fs && fs->inUse) {
-		/* Fill file stats */
-		stats->file_length = fs->filesize;
-		stats->file_pos    = fs->currentPosition;
+	if (!fs || !fs->inUse)
+		return EINVAL;
 
-		return 0;
-	}
+	/* Fill file stats */
+	stats->file_length = fs->filesize;
+	stats->file_pos    = fs->currentPosition;
 
-	return EINVAL;
+	/* Flush cache */
+	os_sync_after_write(stats, sizeof(*stats));
+
+	return 0;
 }
 
 #if 0

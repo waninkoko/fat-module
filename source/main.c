@@ -33,23 +33,46 @@
 #include "types.h"
 #include "usbstorage.h"
 
-s32 __FAT_Ioctlv(ipcmessage *message)
-{
-	ioctlv *vector = message->ioctlv.vector;
-	u32     len_in = message->ioctlv.num_in;
-	u32     len_io = message->ioctlv.num_io;
 
-	u32 cnt;
+s32 __FAT_Initialize(u32 *queuehandle)
+{
+	void *buffer = NULL;
+	s32   ret;
+
+	/* Initialize memory heap */
+	Mem_Init();
+
+	/* Initialize timer subsystem */
+	Timer_Init();
+
+	/* Allocate queue buffer */
+	buffer = Mem_Alloc(0x20);
+	if (!buffer)
+		return IPC_ENOMEM;
+
+	/* Create message queue */
+	ret = os_message_queue_create(buffer, 8);
+	if (ret < 0)
+		return ret;
+
+	/* Register devices */
+	os_device_register(DEVICE_FAT,  ret);
+	os_device_register(DEVICE_SDIO, ret);
+	os_device_register(DEVICE_USB,  ret);
+
+	/* Copy queue handler */
+	*queuehandle = ret;
+
+	return 0;
+}
+
+
+s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
+{
 	s32 ret = IPC_EINVAL;
 
-	/* Invalidate cache */
-	os_sync_before_read(vector, sizeof(ioctlv) * (len_in + len_io));
-
-	for (cnt = 0; cnt < (len_in + len_io); cnt++)
-		os_sync_before_read(vector[cnt].data, vector[cnt].len);
-
-	/* Parse IOCTLV command */
-	switch (message->ioctlv.command) {
+	/* Parse command */
+	switch (cmd) {
 	/** Open file **/
 	case IOCTL_FAT_OPEN: {
 		char *filepath = (char *)vector[0].data;
@@ -63,49 +86,49 @@ s32 __FAT_Ioctlv(ipcmessage *message)
 
 	/** Close file **/
 	case IOCTL_FAT_CLOSE: {
-		u32 fd = *(u32 *)vector[0].data;
+		s32 cfd = *(s32 *)vector[0].data;
 
 		/* Close file */
-		ret = FAT_Close(fd);
+		ret = FAT_Close(cfd);
 
 		break;
 	}
 
 	/** Read file **/
 	case IOCTL_FAT_READ: {
-		u32   fd = *(u32 *)vector[0].data;
+		s32 cfd = *(s32 *)vector[0].data;
 
 		void *buffer = vector[1].data;
 		u32   len    = vector[1].len;
 
 		/* Read file */
-		ret = FAT_Read(fd, buffer, len);
+		ret = FAT_Read(cfd, buffer, len);
 
 		break;
 	}
 
 	/** Write file **/
 	case IOCTL_FAT_WRITE: {
-		u32   fd = *(u32 *)vector[0].data;
+		s32 cfd = *(s32 *)vector[0].data;
 
 		void *buffer = vector[1].data;
 		u32   len    = vector[1].len;
 
 		/* Write file */
-		ret = FAT_Write(fd, buffer, len);
+		ret = FAT_Write(cfd, buffer, len);
 
 		break;
 	}
 
 	/** Seek file **/
 	case IOCTL_FAT_SEEK: {
-		u32 fd = *(u32 *)vector[0].data;
+		s32 cfd = *(s32 *)vector[0].data;
 
 		u32 where  = *(u32 *)vector[1].data;
 		u32 whence = *(u32 *)vector[2].data;
 
 		/* Seek file */
-		ret = FAT_Seek(fd, where, whence);
+		ret = FAT_Seek(cfd, where, whence);
 
 		break;
 	}
@@ -139,7 +162,7 @@ s32 __FAT_Ioctlv(ipcmessage *message)
 		u32 maxlen = 0;
 
 		/* Input values */
-		if (len_io > 1) {
+		if (iolen > 1) {
 			maxlen = *(u32 *)vector[1].data;
 			outbuf = (char *)vector[2].data;
 			outlen =  (u32 *)vector[3].data;
@@ -208,11 +231,10 @@ s32 __FAT_Ioctlv(ipcmessage *message)
 	/** Get file stats **/
 	case IOCTL_FAT_FILESTATS: {
 		fstats *stats = (fstats *)vector[0].data;
-		u32     fd    = message->fd;
 
-		/* FD specified */
-		if (len_in) {
-			fd    = *(u32 *)vector[0].data;
+		/* Descriptor specified */
+		if (inlen) {
+			fd    =   *(s32 *)vector[0].data;
 			stats = (fstats *)vector[1].data;
 		}
 
@@ -274,45 +296,8 @@ s32 __FAT_Ioctlv(ipcmessage *message)
 		break;
 	}
 
-	/* Flush cache */
-	for (cnt = 0; cnt < (len_in + len_io); cnt++)
-		os_sync_after_write(vector[cnt].data, vector[cnt].len);
-
 	return ret;
 }
-
-s32 __FAT_Initialize(u32 *queuehandle)
-{
-	void *buffer = NULL;
-	s32   ret;
-
-	/* Initialize memory heap */
-	Mem_Init();
-
-	/* Initialize timer subsystem */
-	Timer_Init();
-
-	/* Allocate queue buffer */
-	buffer = Mem_Alloc(0x20);
-	if (!buffer)
-		return IPC_ENOMEM;
-
-	/* Create message queue */
-	ret = os_message_queue_create(buffer, 8);
-	if (ret < 0)
-		return ret;
-
-	/* Register devices */
-	os_device_register(DEVICE_FAT,  ret);
-	os_device_register(DEVICE_SDIO, ret);
-	os_device_register(DEVICE_USB,  ret);
-
-	/* Copy queue handler */
-	*queuehandle = ret;
-
-	return 0;
-}
-
 
 int main(void)
 {
@@ -362,18 +347,12 @@ int main(void)
 			/* Read file */
 			ret = FAT_Read(message->fd, buffer, len);
 
-			/* Flush cache */
-			os_sync_after_write(buffer, len);
-
 			break;
 		}
 
 		case IOS_WRITE: {
 			void *buffer = message->write.data;
 			u32   len    = message->write.length;
-
-			/* Invalidate cache */
-			os_sync_before_read(buffer, len);
 
 			/* Write file */
 			ret = FAT_Write(message->fd, buffer, len);
@@ -392,8 +371,13 @@ int main(void)
 		}
 
 		case IOS_IOCTLV: {
+			ioctlv *vector = message->ioctlv.vector;
+			u32     inlen  = message->ioctlv.num_in;
+			u32     iolen  = message->ioctlv.num_io;
+			u32     cmd    = message->ioctlv.command;
+
 			/* Parse IOCTLV message */
-			ret = __FAT_Ioctlv(message);
+			ret = FAT_Ioctlv(message->fd, cmd, vector, inlen, iolen);
 
 			break;
 		}

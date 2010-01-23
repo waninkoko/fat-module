@@ -140,7 +140,7 @@ static char _sd0_fs[] ATTRIBUTE_ALIGN(32) = "/dev/sdio/slot0";
 
 static s32 __sdio_sendcommand(u32 cmd,u32 cmd_type,u32 rsp_type,u32 arg,u32 blk_cnt,u32 blk_size,void *buffer,void *reply,u32 rlen)
 {
-	s32 cnt, ret;
+	s32 ret;
 	STACK_ALIGN(ioctlv,iovec,3,32);
 	STACK_ALIGN(struct _sdiorequest,request,1,32);
 	STACK_ALIGN(struct _sdioresponse,response,1,32);
@@ -155,29 +155,33 @@ static s32 __sdio_sendcommand(u32 cmd,u32 cmd_type,u32 rsp_type,u32 arg,u32 blk_
 	request->isdma = ((buffer!=NULL)?1:0);
 	request->pad0 = 0;
 
-	iovec[0].data = request;
-	iovec[0].len = sizeof(struct _sdiorequest);
-	iovec[1].data = buffer;
-	iovec[1].len = (blk_size*blk_cnt);
-	iovec[2].data = response;
-	iovec[2].len = sizeof(struct _sdioresponse);
+	os_sync_after_write(request, sizeof(struct _sdiorequest));
+	os_sync_after_write(response, sizeof(struct _sdioresponse));
 
-	for (cnt = 0; cnt < 3; cnt++)
-		if (iovec[cnt].data)
-			 os_sync_after_write((void *)iovec[cnt].data, iovec[cnt].len);
-
-	os_sync_after_write(iovec, sizeof(ioctlv) * 3);
+	if (buffer)
+		os_sync_after_write(buffer, blk_size * blk_cnt);
  
 	if(request->isdma || __sd0_sdhc == 1 ) {
-		ret = os_ioctlv(__sd0_fd,IOCTL_SDIO_SENDCMD,2,1,iovec);
+		iovec[0].data = request;
+		iovec[0].len = sizeof(struct _sdiorequest);
+		iovec[1].data = buffer;
+		iovec[1].len = (blk_size*blk_cnt);
+		iovec[2].data = response;
+		iovec[2].len = sizeof(struct _sdioresponse);
 
-		for (cnt = 0; cnt < 3; cnt++)
-			if (iovec[cnt].data)
-				os_sync_before_read((void *)iovec[cnt].data, iovec[cnt].len);
-	} else
+		os_sync_after_write(iovec, sizeof(ioctlv) * 3);
+
+		ret = os_ioctlv(__sd0_fd,IOCTL_SDIO_SENDCMD,2,1,iovec);
+	}else
 		ret = os_ioctl(__sd0_fd,IOCTL_SDIO_SENDCMD,request,sizeof(struct _sdiorequest),response,sizeof(struct _sdioresponse));
 
-	if(reply && !(rlen>16)) memcpy(reply,response,rlen);
+	os_sync_before_read(response, sizeof(struct _sdioresponse));
+
+	if (buffer)
+		os_sync_before_read(buffer, blk_size * blk_cnt);
+
+	if (reply && !(rlen>16))
+		memcpy(reply,response,rlen);
 
 	return ret;
 }
@@ -383,6 +387,8 @@ static	bool __sd0_initio(void)
 		os_close(__sd0_fd);
 		__sd0_fd = os_open(_sd0_fs,1);
 
+		if(__sd0_fd<0) return false; 
+
 		// reset the host controller
 		if(__sdio_sethcr(SDIOHCR_SOFTWARERESET, 1, 7) < 0) goto fail;
 		if(__sdio_waithcr(SDIOHCR_SOFTWARERESET, 1, 1, 7) < 0) goto fail;
@@ -484,6 +490,7 @@ bool sdio_Deinitialize(void)
 	if(__sd0_fd>=0)
 		os_close(__sd0_fd);
 
+	__sd0_fd = -1;
 	__sdio_initialized = 0;
 	return true;
 }
