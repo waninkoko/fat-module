@@ -21,6 +21,7 @@
 */
 
 #include <string.h>
+#include <errno.h>
 
 #include "fat.h"
 #include "fat_wrapper.h"
@@ -46,12 +47,12 @@ s32 __FAT_Initialize(u32 *queuehandle)
 	Timer_Init();
 
 	/* Allocate queue buffer */
-	buffer = Mem_Alloc(0x20);
+	buffer = Mem_Alloc(0x80);
 	if (!buffer)
 		return IPC_ENOMEM;
 
 	/* Create message queue */
-	ret = os_message_queue_create(buffer, 8);
+	ret = os_message_queue_create(buffer, 32);
 	if (ret < 0)
 		return ret;
 
@@ -67,72 +68,46 @@ s32 __FAT_Initialize(u32 *queuehandle)
 }
 
 
+s32 FAT_Ioctl(s32 fd, u32 cmd, void *inbuf, u32 inlen, void *iobuf, u32 iolen)
+{
+	s32 ret = IPC_EINVAL;
+
+	/* Invalidate cache */
+	if (inbuf)
+		os_sync_before_read(inbuf, inlen);
+
+	/* Parse command */
+	switch (cmd) {
+	/** Get file stats **/
+	case IOCTL_FAT_FILESTATS: {
+		fstats *stats = (fstats *)iobuf;
+
+		/* Get file stats */
+		ret = FAT_GetFileStats(fd, stats);
+
+		break;
+	}
+
+	default:
+		break;
+	}
+
+	/* Flush cache */
+	if (iobuf)
+		os_sync_after_write(iobuf, iolen);
+
+	return ret;
+}
+
 s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
 {
 	s32 ret = IPC_EINVAL;
 
+	/* Invalidate ache */
+	InvalidateVector(vector, inlen, iolen);
+
 	/* Parse command */
 	switch (cmd) {
-	/** Open file **/
-	case IOCTL_FAT_OPEN: {
-		char *filepath = (char *)vector[0].data;
-		u32   mode     = *(u32 *)vector[1].data;
-
-		/* Open file */
-		ret = FAT_Open(filepath, mode);
-
-		break;
-	}
-
-	/** Close file **/
-	case IOCTL_FAT_CLOSE: {
-		s32 cfd = *(s32 *)vector[0].data;
-
-		/* Close file */
-		ret = FAT_Close(cfd);
-
-		break;
-	}
-
-	/** Read file **/
-	case IOCTL_FAT_READ: {
-		s32 cfd = *(s32 *)vector[0].data;
-
-		void *buffer = vector[1].data;
-		u32   len    = vector[1].len;
-
-		/* Read file */
-		ret = FAT_Read(cfd, buffer, len);
-
-		break;
-	}
-
-	/** Write file **/
-	case IOCTL_FAT_WRITE: {
-		s32 cfd = *(s32 *)vector[0].data;
-
-		void *buffer = vector[1].data;
-		u32   len    = vector[1].len;
-
-		/* Write file */
-		ret = FAT_Write(cfd, buffer, len);
-
-		break;
-	}
-
-	/** Seek file **/
-	case IOCTL_FAT_SEEK: {
-		s32 cfd = *(s32 *)vector[0].data;
-
-		u32 where  = *(u32 *)vector[1].data;
-		u32 whence = *(u32 *)vector[2].data;
-
-		/* Seek file */
-		ret = FAT_Seek(cfd, where, whence);
-
-		break;
-	}
-
 	/** Create directory **/
 	case IOCTL_FAT_MKDIR: {
 		char *dirpath = (char *)vector[0].data;
@@ -158,19 +133,53 @@ s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
 		char *dirpath = (char *)vector[0].data;
 		char *outbuf  = NULL;
 		u32  *outlen  = NULL;
+		u32   buflen  = 0;
 
-		u32 maxlen = 0;
+		u32 entries = 0;
 
 		/* Input values */
 		if (iolen > 1) {
-			maxlen = *(u32 *)vector[1].data;
-			outbuf = (char *)vector[2].data;
-			outlen =  (u32 *)vector[3].data;
+			entries = *(u32 *)vector[1].data;
+			outbuf  = (char *)vector[2].data;
+			outlen  =  (u32 *)vector[3].data;
+			buflen  =         vector[2].len;
 		} else
-			outlen =  (u32 *)vector[1].data;
+			outlen  =  (u32 *)vector[1].data;
+
+		/* Clear buffer */
+		if (outbuf)
+			memset(outbuf, 0, buflen);
 
 		/* Read directory */
-		ret = FAT_ReadDir(dirpath, outbuf, outlen, maxlen);
+		ret = FAT_ReadDir(dirpath, outbuf, outlen, entries);
+
+		break;
+	}
+
+	/** Read directory (LFN) **/
+	case IOCTL_FAT_READDIR_LFN: {
+		char *dirpath = (char *)vector[0].data;
+		char *outbuf  = NULL;
+		u32  *outlen  = NULL;
+		u32   buflen  = 0;
+
+		u32 entries = 0;
+
+		/* Input values */
+		if (iolen > 1) {
+			entries = *(u32 *)vector[1].data;
+			outbuf  = (char *)vector[2].data;
+			outlen  =  (u32 *)vector[3].data;
+			buflen  =         vector[2].len;
+		} else
+			outlen  =  (u32 *)vector[1].data;
+
+		/* Clear buffer */
+		if (outbuf)
+			memset(outbuf, 0, buflen);
+
+		/* Read directory (LFN) */
+		ret = FAT_ReadDirLfn(dirpath, outbuf, outlen, entries);
 
 		break;
 	}
@@ -217,7 +226,7 @@ s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
 		break;
 	}
 
-	/** Get filesystem stats */
+	/** Get filesystem stats **/
 	case IOCTL_FAT_VFSSTATS: {
 		char *path  = (char *)vector[0].data;
 		void *stats = vector[1].data;
@@ -228,21 +237,33 @@ s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
 		break;
 	}
 
-	/** Get file stats **/
-	case IOCTL_FAT_FILESTATS: {
-		fstats *stats = (fstats *)vector[0].data;
+	/** Get usage **/
+	case IOCTL_FAT_GETUSAGE: {
+		char *path   = (char *)vector[0].data;
+		u32  *blocks =  (u32 *)vector[1].data;
+		u32  *inodes =  (u32 *)vector[2].data;
 
-		/* Descriptor specified */
-		if (inlen) {
-			fd    =   *(s32 *)vector[0].data;
-			stats = (fstats *)vector[1].data;
+		u64 size;
+
+		/* Reset values */
+		*blocks = 0;
+		*inodes = 0;
+
+		/* Get usage */
+		ret = FAT_GetUsage(path, &size, inodes);
+
+		/* Not a directory */
+		if (ret == -ENOTDIR) {
+			ret = 0;
+			break;
 		}
 
-		/* Get file stats */
-		ret = FAT_GetFileStats(fd, stats);
+		/* Calculate blocks */
+		*blocks = (size / 0x4000);
 
 		break;
 	}
+
 
 	/** Mount SD card **/
 	case IOCTL_FAT_MOUNTSD: {
@@ -296,6 +317,9 @@ s32 FAT_Ioctlv(s32 fd, u32 cmd, ioctlv *vector, u32 inlen, u32 iolen)
 		break;
 	}
 
+	/* Flush cache */
+	FlushVector(vector, inlen, iolen);
+
 	return ret;
 }
 
@@ -303,6 +327,9 @@ int main(void)
 {
 	u32 queuehandle;
 	s32 ret;
+
+	/* Print info */
+	write("$IOSVersion: FAT: " __DATE__ " " __TIME__ " 64M$\n");
 
 	/* Initialize module */
 	ret = __FAT_Initialize(&queuehandle);
@@ -366,6 +393,19 @@ int main(void)
 
 			/* Seek file */
 			ret = FAT_Seek(message->fd, where, whence);
+
+			break;
+		}
+
+		case IOS_IOCTL: {
+			void *inbuf = message->ioctl.buffer_in;
+			u32   inlen = message->ioctl.length_in;
+			void *iobuf = message->ioctl.buffer_io;
+			u32   iolen = message->ioctl.length_io;
+			u32   cmd   = message->ioctl.command;
+
+			/* Parse IOCTL message */
+			ret = FAT_Ioctl(message->fd, cmd, inbuf, inlen, iobuf, iolen);
 
 			break;
 		}

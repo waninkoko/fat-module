@@ -100,8 +100,11 @@ static const char FAT_SIG[3] = {'F', 'A', 'T'};
 PARTITION* _FAT_partition_constructor (const DISC_INTERFACE* disc, uint32_t cacheSize, sec_t startSector) {
 	PARTITION* partition;
 	int i;
-	uint8_t sectorBuffer[BYTES_PER_READ] = {0};
+	
+	static uint8_t sectorBuffer[BYTES_PER_READ]__attribute__((aligned(32))) = {0};
 
+	sectorBuffer[0]=0;
+	
 	// Read first sector of disc
 	if (!_FAT_disc_readSectors (disc, startSector, 1, sectorBuffer)) {
 		return NULL;
@@ -121,6 +124,7 @@ PARTITION* _FAT_partition_constructor (const DISC_INTERFACE* disc, uint32_t cach
 		// Check for FAT32
 		startSector = 0;
 	} else {
+		#if 0
 		// This is an MBR
 		// Find first valid partition from MBR
 		// First check for an active partition
@@ -145,8 +149,65 @@ PARTITION* _FAT_partition_constructor (const DISC_INTERFACE* disc, uint32_t cach
 			// No partition found, assume this is a MBR free disk
 			startSector = 0;
 		}
-	}
+	#else
 
+		uint8_t part_table[16*4],*ptr;
+
+		//find FAT partition
+		if(sectorBuffer[0x1fe]!=0x55 || sectorBuffer[0x1ff]!=0xaa) memset(part_table,0,16*4);
+		else memcpy(part_table,sectorBuffer+0x1be,16*4);
+
+        ptr = part_table;
+
+		
+
+        for(i=0;i<4;i++,ptr+=16)
+        { 
+		u32 part_lba = u8array_to_u32(ptr, 0x8 );
+		
+		if(ptr[4]==0) continue;
+
+		if(ptr[4]==0xf)
+			{
+			u32 part_lba2=part_lba;
+			u32 next_lba2=0;
+			int n;
+			
+			for(n=0;n<8;n++) // max 8 logic partitions (i think it is sufficient!)
+				{
+					startSector=part_lba+next_lba2;
+					if (!_FAT_disc_readSectors (disc, startSector, 1, sectorBuffer)) {return NULL;}
+		
+
+					part_lba2=part_lba+next_lba2+u8array_to_u32(sectorBuffer, 0x1C6);
+					next_lba2=u8array_to_u32(sectorBuffer, 0x1D6);
+
+					startSector=part_lba2;
+					if (!_FAT_disc_readSectors (disc, startSector, 1, sectorBuffer)) {return NULL;}
+
+					if (!memcmp(sectorBuffer + BPB_FAT16_fileSysType, FAT_SIG, sizeof(FAT_SIG)) 
+						|| !memcmp(sectorBuffer + BPB_FAT32_fileSysType, FAT_SIG, sizeof(FAT_SIG))) goto fat_finded;
+
+					if(next_lba2==0) break;
+				}
+			}  
+          else
+				{
+					startSector=part_lba;
+					if (!_FAT_disc_readSectors (disc, startSector, 1, sectorBuffer)) {return NULL;}
+
+					// verify there is the magic.
+					if (!memcmp(sectorBuffer + BPB_FAT16_fileSysType, FAT_SIG, sizeof(FAT_SIG)) 
+						|| !memcmp(sectorBuffer + BPB_FAT32_fileSysType, FAT_SIG, sizeof(FAT_SIG))) goto fat_finded;
+				}
+       
+		
+		}
+	
+
+		#endif
+	}
+fat_finded:
 	// Now verify that this is indeed a FAT partition
 	if (memcmp(sectorBuffer + BPB_FAT16_fileSysType, FAT_SIG, sizeof(FAT_SIG)) && 
 		memcmp(sectorBuffer + BPB_FAT32_fileSysType, FAT_SIG, sizeof(FAT_SIG)))
@@ -212,7 +273,11 @@ PARTITION* _FAT_partition_constructor (const DISC_INTERFACE* disc, uint32_t cach
 	}
 
 	// Create a cache to use
-	partition->cache = _FAT_cache_constructor (cacheSize, partition->disc);
+	uint32_t sectorsPerPage= partition->sectorsPerCluster > PAGE_SECTORS ? PAGE_SECTORS  : partition->sectorsPerCluster;
+
+	if(sectorsPerPage<16 && PAGE_SECTORS>=16) sectorsPerPage=16;
+
+	partition->cache = _FAT_cache_constructor (partition->fat.fatStart, cacheSize, sectorsPerPage, partition->disc, startSector+partition->numberOfSectors);
 
 
 	// Set current directory to the root

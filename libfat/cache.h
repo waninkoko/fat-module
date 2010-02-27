@@ -1,16 +1,16 @@
 /*
  cache.h
- The cache is not visible to the user. It should be flushed 
+ The cache is not visible to the user. It should be flushed
  when any file is closed or changes are made to the filesystem.
- 
- This cache implements a least-used-page replacement policy. This will 
- distribute sectors evenly over the pages, so if less than the maximum 
+
+ This cache implements a least-used-page replacement policy. This will
+ distribute sectors evenly over the pages, so if less than the maximum
  pages are used at once, they should all eventually remain in the cache.
  This also has the benefit of throwing out old sectors, so as not to keep
  too many stale pages around.
 
  Copyright (c) 2006 Michael "Chishm" Chisholm
-	
+
  Redistribution and use in source and binary forms, with or without modification,
  are permitted provided that the following conditions are met:
 
@@ -39,21 +39,25 @@
 #include "common.h"
 #include "disc.h"
 
-#define CACHE_PAGE_SIZE BYTES_PER_READ
+#define PAGE_SECTORS 32
+#define CACHE_PAGE_SIZE (BYTES_PER_READ * PAGE_SECTORS)
 
 typedef struct {
 	sec_t        sector;
 	unsigned int count;
+	unsigned int last_access;
 	bool         dirty;
+	uint8_t*     cache;
 } CACHE_ENTRY;
 
 typedef struct {
 	const DISC_INTERFACE* disc;
+	sec_t		          endOfPartition;
 	unsigned int          numberOfPages;
+	unsigned int          sectorsPerPage;
+	sec_t FATdisalign;
 	CACHE_ENTRY*          cacheEntries;
-	uint8_t*              pages;
 } CACHE;
-
 
 /*
 Read data from a sector in the cache
@@ -89,6 +93,11 @@ Precondition: offset + size <= BYTES_PER_READ
 bool _FAT_cache_eraseWritePartialSector (CACHE* cache, const void* buffer, sec_t sector, unsigned int offset, size_t size);
 
 /*
+Read several sectors from the cache
+*/
+bool _FAT_cache_readSectors (CACHE* cache, sec_t sector, sec_t numSectors, void* buffer);
+
+/*
 Read a full sector from the cache
 */
 static inline bool _FAT_cache_readSector (CACHE* cache, void* buffer, sec_t sector) {
@@ -102,17 +111,19 @@ static inline bool _FAT_cache_writeSector (CACHE* cache, const void* buffer, sec
 	return _FAT_cache_writePartialSector (cache, buffer, sector, 0, BYTES_PER_READ);
 }
 
+bool _FAT_cache_writeSectors (CACHE* cache, sec_t sector, sec_t numSectors, const void* buffer);
+
 /*
 Write any dirty sectors back to disc and clear out the contents of the cache
 */
 bool _FAT_cache_flush (CACHE* cache);
 
-/* 
+/*
 Clear out the contents of the cache without writing any dirty sectors first
 */
 void _FAT_cache_invalidate (CACHE* cache);
 
-CACHE* _FAT_cache_constructor (unsigned int numberOfPages, const DISC_INTERFACE* discInterface);
+CACHE* _FAT_cache_constructor (sec_t FATstart, unsigned int numberOfPages, unsigned int sectorsPerPage, const DISC_INTERFACE* discInterface, sec_t endOfPartition);
 
 void _FAT_cache_destructor (CACHE* cache);
 

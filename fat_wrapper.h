@@ -2,6 +2,7 @@
 #define _FAT_WRAPPER_H_
 
 #include <sys/stat.h>
+#include "fat.h"
 #include "types.h"
 
 /* Filestats structure */
@@ -9,6 +10,7 @@ typedef struct _fstats {
 	u32 file_length;
 	u32 file_pos;
 } fstats;
+
 
 /* Prototypes */
 s32 FAT_Open(const char *path, u32 mode);
@@ -18,7 +20,8 @@ s32 FAT_Write(s32 fd, void *buffer, u32 len);
 s32 FAT_Seek(s32 fd, u32 where, u32 whence);
 s32 FAT_CreateDir(const char *dirpath);
 s32 FAT_CreateFile(const char *filepath);
-s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen);
+s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 entries);
+s32 FAT_ReadDirLfn(const char *dirpath, char *outbuf, u32 *outlen, u32 entries);
 s32 FAT_Delete(const char *path);
 s32 FAT_DeleteDir(const char *dirpath);
 s32 FAT_Rename(const char *oldname, const char *newname);

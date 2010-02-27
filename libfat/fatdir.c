@@ -29,6 +29,7 @@
 */
 
 #include <string.h>
+
 #include <ctype.h>
 #include <unistd.h>
 #include <sys/dir.h>
@@ -292,7 +293,7 @@ int _FAT_rename_r (struct _reent *r, const char *oldName, const char *newName) {
 	memcpy (&newDirEntry, &oldDirEntry, sizeof(DIR_ENTRY));
 	
 	// Set the new name
-	strncpy (newDirEntry.filename, pathEnd, MAX_FILENAME_LENGTH - 1);
+	strcpy (newDirEntry.filename, pathEnd);//, MAX_FILENAME_LENGTH - 1);
 	
 	// Write the new entry
 	if (!_FAT_directory_addEntry (partition, &newDirEntry, dirCluster)) {
@@ -381,13 +382,16 @@ int _FAT_mkdir_r (struct _reent *r, const char *path, int mode) {
 		pathEnd += 1;
 	}
 	// Create the entry data
-	strncpy (dirEntry.filename, pathEnd, MAX_FILENAME_LENGTH - 1);
+	strcpy (dirEntry.filename, pathEnd);//, MAX_FILENAME_LENGTH - 1);
 	memset (dirEntry.entryData, 0, DIR_ENTRY_DATA_SIZE);
 	
 	// Set the creation time and date
 	dirEntry.entryData[DIR_ENTRY_cTime_ms] = 0;
 	u16_to_u8array (dirEntry.entryData, DIR_ENTRY_cTime, _FAT_filetime_getTimeFromRTC());
 	u16_to_u8array (dirEntry.entryData, DIR_ENTRY_cDate, _FAT_filetime_getDateFromRTC());
+	u16_to_u8array (dirEntry.entryData, DIR_ENTRY_mTime, _FAT_filetime_getTimeFromRTC());
+	u16_to_u8array (dirEntry.entryData, DIR_ENTRY_mDate, _FAT_filetime_getDateFromRTC());
+	u16_to_u8array (dirEntry.entryData, DIR_ENTRY_aDate, _FAT_filetime_getDateFromRTC());
 	
 	// Set the directory attribute
 	dirEntry.entryData[DIR_ENTRY_attributes] = ATTRIB_DIR;
@@ -424,6 +428,11 @@ int _FAT_mkdir_r (struct _reent *r, const char *path, int mode) {
 	
 	
 	// Create the double dot entry within the directory
+
+	// if ParentDir == Rootdir then ".."" always link to Cluster 0
+	if(parentCluster == partition->rootDirCluster)
+		parentCluster = FAT16_ROOT_DIR_CLUSTER;
+
 	newEntryData[DIR_ENTRY_name + 1] = '.';
 	u16_to_u8array (newEntryData, DIR_ENTRY_cluster, parentCluster);
 	u16_to_u8array (newEntryData, DIR_ENTRY_clusterHigh, parentCluster >> 16);
@@ -463,12 +472,12 @@ int _FAT_statvfs_r (struct _reent *r, const char *path, struct statvfs *buf)
 	buf->f_bsize = partition->bytesPerCluster;		// File system block size. 
 	buf->f_frsize = partition->bytesPerCluster;	// Fundamental file system block size. 
 	
-	buf->f_blocks	= partition->fat.lastCluster - CLUSTER_FIRST; // Total number of blocks on file system in units of f_frsize. 
+	buf->f_blocks	= partition->fat.lastCluster - CLUSTER_FIRST + 1; // Total number of blocks on file system in units of f_frsize. 
 	buf->f_bfree = freeClusterCount;	// Total number of free blocks. 
 	buf->f_bavail	= freeClusterCount;	// Number of free blocks available to non-privileged process. 
 
 	// Treat requests for info on inodes as clusters
-	buf->f_files = partition->fat.lastCluster - CLUSTER_FIRST;	// Total number of file serial numbers. 
+	buf->f_files = partition->fat.lastCluster - CLUSTER_FIRST + 1;	// Total number of file serial numbers. 
 	buf->f_ffree = freeClusterCount;	// Total number of free file serial numbers. 
 	buf->f_favail = freeClusterCount;	// Number of file serial numbers available to non-privileged process. 
 	
@@ -489,7 +498,7 @@ DIR_ITER* _FAT_diropen_r(struct _reent *r, DIR_ITER *dirState, const char *path)
 	DIR_ENTRY dirEntry;
 	DIR_STATE_STRUCT* state = (DIR_STATE_STRUCT*) (dirState->dirStruct);
 	bool fileExists;
-
+	
 	state->partition = _FAT_partition_getPartitionFromPath (path);
 	if (state->partition == NULL) {
 		r->_errno = ENODEV;
@@ -504,9 +513,9 @@ DIR_ITER* _FAT_diropen_r(struct _reent *r, DIR_ITER *dirState, const char *path)
 		r->_errno = EINVAL;
 		return NULL;
 	}
-
+	
 	_FAT_lock(&state->partition->lock);
-
+	
 	// Get the start cluster of the directory
 	fileExists = _FAT_directory_entryFromPath (state->partition, &dirEntry, path, NULL);
 	
@@ -515,7 +524,7 @@ DIR_ITER* _FAT_diropen_r(struct _reent *r, DIR_ITER *dirState, const char *path)
 		r->_errno = ENOENT;
 		return NULL;
 	}
-
+	
 	// Make sure it is a directory
 	if (! _FAT_directory_isDirectory (&dirEntry)) {
 		_FAT_unlock(&state->partition->lock);
@@ -525,7 +534,7 @@ DIR_ITER* _FAT_diropen_r(struct _reent *r, DIR_ITER *dirState, const char *path)
 
 	// Save the start cluster for use when resetting the directory data
 	state->startCluster = _FAT_directory_entryGetCluster (state->partition, dirEntry.entryData);
-
+	
 	// Get the first entry for use with a call to dirnext
 	state->validEntry = 
 		_FAT_directory_getFirstEntry (state->partition, &(state->currentEntry), state->startCluster);
@@ -575,10 +584,8 @@ int _FAT_dirnext_r (struct _reent *r, DIR_ITER *dirState, char *filename, struct
 		return -1;
 	}
 
-	// Get the filename, if requested
-	if (filename != NULL) {
-		strncpy (filename, state->currentEntry.filename, MAX_FILENAME_LENGTH);
-	}
+	// Get the filename
+	strcpy (filename, state->currentEntry.filename);//, MAX_FILENAME_LENGTH);
 	// Get the stats, if requested
 	if (filestat != NULL) {
 		_FAT_directory_entryStat (state->partition, &(state->currentEntry), filestat);

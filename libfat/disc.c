@@ -113,3 +113,19 @@ const INTERFACE_ID _FAT_disc_interfaces[] = {
 #endif
 
 #endif
+
+bool _FAT_disc_readSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, void* buffer) {
+	return disc->readSectors (sector, numSectors, buffer);
+}
+
+
+/*
+Write numSectors sectors to a disc, starting at sector. 
+numSectors is between 1 and LIMIT_SECTORS if LIMIT_SECTORS is defined,
+else it is at least 1
+sector is 0 or greater
+buffer is a pointer to the memory to read from
+*/
+bool _FAT_disc_writeSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, const void* buffer) {
+	return disc->writeSectors (sector, numSectors, buffer);
+}

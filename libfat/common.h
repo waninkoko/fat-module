@@ -73,8 +73,7 @@
    #define LIMIT_SECTORS 128
 #else
 // starlet
-   #define DEFAULT_CACHE_PAGES 8
-
+   #define DEFAULT_CACHE_PAGES 4
 #endif
 
 #endif // _COMMON_H

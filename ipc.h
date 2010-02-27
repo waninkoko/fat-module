@@ -73,4 +73,9 @@ typedef struct ipcmessage {
 	};
 } ATTRIBUTE_PACKED ipcmessage;
 
+
+/* Prototypes */
+void InvalidateVector(ioctlv *vector, u32 inlen, u32 iolen);
+void FlushVector(ioctlv *vector, u32 inlen, u32 iolen);
+
 #endif

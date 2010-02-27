@@ -38,6 +38,41 @@
 static struct _reent fReent;
 
 
+char *__FAT_CheckPath(const char *path)
+{
+	static char newpath[MAX_FILENAME_LENGTH];
+	char       *ptr;
+
+	/* Copy path */
+	strcpy(newpath, path);
+
+	/* Find '/' */
+	ptr = strchr(newpath, '/');
+	if (ptr) {
+		u32 cnt;
+
+		/* Check path */
+		for (cnt = 0; ptr[cnt]; cnt++) {
+			/* Check character */
+			switch (ptr[cnt]) {
+			case '"':
+			case '*':
+			case ':':
+			case '<':
+			case '>':
+			case '?':
+			case '|':
+				/* Replace character */
+				ptr[cnt] = '_';
+				break;
+			}
+		}
+	}
+
+	/* Return path */
+	return newpath;
+}
+
 s32 __FAT_GetError(void)
 {
 	/* Return error code */
@@ -48,6 +83,9 @@ s32 __FAT_OpenDir(const char *dirpath, DIR_ITER *dir)
 {
 	DIR_ITER         *result = NULL;
 	DIR_STATE_STRUCT *state  = NULL;
+
+	/* Check path */
+	dirpath = __FAT_CheckPath(dirpath);
 
 	/* Allocate memory */
 	state = Mem_Alloc(sizeof(DIR_STATE_STRUCT));
@@ -95,6 +133,9 @@ s32 FAT_Open(const char *path, u32 mode)
 
 	s32 ret;
 
+	/* Check path */
+	path = __FAT_CheckPath(path);
+
 	/* Allocate memory */
 	fs = Mem_Alloc(sizeof(FILE_STRUCT));
 	if (!fs)
@@ -137,18 +178,12 @@ s32 FAT_Read(s32 fd, void *buffer, u32 len)
 	if (ret < 0)
 		ret = __FAT_GetError();
 
-	/* Flush cache */
-	os_sync_after_write(buffer, len);
-
 	return ret;
 }
 
 s32 FAT_Write(s32 fd, void *buffer, u32 len)
 {
 	s32 ret;
-
-	/* Invalidate cache */
-	os_sync_before_read(buffer, len);
 
 	/* Clear error code */
 	fReent._errno = 0;
@@ -180,6 +215,9 @@ s32 FAT_CreateDir(const char *dirpath)
 {
 	s32 ret;
 
+	/* Check path */
+	dirpath = __FAT_CheckPath(dirpath);
+
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -196,6 +234,9 @@ s32 FAT_CreateFile(const char *filepath)
 	FILE_STRUCT fs;
 	s32         ret;
 
+	/* Check path */
+	filepath = __FAT_CheckPath(filepath);
+
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -210,7 +251,7 @@ s32 FAT_CreateFile(const char *filepath)
 	return 0;
 }
 
-s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
+s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 entries)
 {
 	DIR_ITER dir;
 
@@ -223,8 +264,9 @@ s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
 		return ret;
 
 	/* Read entries */
-	while (!maxlen || (maxlen > cnt)) {
-		char *filename = outbuf + pos;
+	while (!entries || (entries > cnt)) {
+		char filename[MAX_FILENAME_LENGTH];
+		u32  len;
 
 		/* Read entry */
 		if (_FAT_dirnext_r(&fReent, &dir, filename, NULL))
@@ -234,11 +276,24 @@ s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
 		if (!strcmp(filename, ".") || !strcmp(filename, ".."))
 			continue;
 
+		/* Filename length */
+		len = strlen(filename);
+
+		/* Filename too long */
+		if (len >= MAX_ALIAS_LENGTH)
+			continue;
+
+		/* Copy to output */
+		if (outbuf) {
+			/* Copy filename */
+			strcpy(outbuf + pos, filename);
+
+			/* Update position */
+			pos += len + 1;
+		}
+
 		/* Increase counter */
 		cnt++;
-
-		/* Update position */
-		pos += (outbuf) ? strlen(filename) + 1 : 0;
 	}
 
 	/* Output values */
@@ -247,11 +302,55 @@ s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
 	/* Close directory */
 	__FAT_CloseDir(&dir);
 
-	/* Flush cache */
-	if (outbuf)
-		os_sync_after_write(outbuf, pos);
-	if (outlen)
-		os_sync_after_write(outbuf, sizeof(u32));
+	return 0;
+}
+
+s32 FAT_ReadDirLfn(const char *dirpath, char *outbuf, u32 *outlen, u32 entries)
+{
+	DIR_ITER dir;
+
+	u32 cnt = 0, pos = 0;
+	s32 ret;
+
+	/* Open directory */
+	ret = __FAT_OpenDir(dirpath, &dir);
+	if (ret < 0)
+		return ret;
+
+	/* Read entries */
+	while (!entries || (entries > cnt)) {
+		char filename[MAX_FILENAME_LENGTH];
+		u32  len;
+
+		/* Read entry */
+		if (_FAT_dirnext_r(&fReent, &dir, filename, NULL))
+			break;
+
+		/* Non valid entry */
+		if (!strcmp(filename, ".") || !strcmp(filename, ".."))
+			continue;
+
+		/* Filename length */
+		len = strlen(filename);
+
+		/* Copy to output */
+		if (outbuf) {
+			/* Copy filename */
+			strcpy(outbuf + pos, filename);
+
+			/* Update position */
+			pos += len + 1;
+		}
+
+		/* Increase counter */
+		cnt++;
+	}
+
+	/* Output values */
+	*outlen = cnt;
+
+	/* Close directory */
+	__FAT_CloseDir(&dir);
 
 	return 0;
 }
@@ -259,6 +358,9 @@ s32 FAT_ReadDir(const char *dirpath, char *outbuf, u32 *outlen, u32 maxlen)
 s32 FAT_Delete(const char *path)
 {
 	s32 ret;
+
+	/* Check path */
+	path = __FAT_CheckPath(path);
 
 	/* Clear error code */
 	fReent._errno = 0;
@@ -324,6 +426,10 @@ s32 FAT_Rename(const char *oldname, const char *newname)
 {
 	s32 ret;
 
+	/* Check paths */
+	oldname = __FAT_CheckPath(oldname);
+	newname = __FAT_CheckPath(newname);
+
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -339,6 +445,9 @@ s32 FAT_Stat(const char *path, void *stats)
 {
 	s32 ret;
 
+	/* Check path */
+	path = __FAT_CheckPath(path);
+
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -347,15 +456,15 @@ s32 FAT_Stat(const char *path, void *stats)
 	if (ret < 0)
 		ret = __FAT_GetError();
 
-	/* Flush cache */
-	os_sync_after_write(stats, sizeof(struct stat));
-
 	return ret;
 }
 
 s32 FAT_GetVfsStats(const char *path, void *stats)
 {
 	s32 ret;
+
+	/* Check path */
+	path = __FAT_CheckPath(path);
 
 	/* Clear error code */
 	fReent._errno = 0;
@@ -364,9 +473,6 @@ s32 FAT_GetVfsStats(const char *path, void *stats)
 	ret = _FAT_statvfs_r(&fReent, path, stats);
 	if (ret < 0)
 		ret = __FAT_GetError();
-
-	/* Flush cache */
-	os_sync_after_write(stats, sizeof(struct statvfs));
 
 	return ret;
 }
@@ -382,19 +488,15 @@ s32 FAT_GetFileStats(s32 fd, fstats *stats)
 	stats->file_length = fs->filesize;
 	stats->file_pos    = fs->currentPosition;
 
-	/* Flush cache */
-	os_sync_after_write(stats, sizeof(*stats));
-
 	return 0;
 }
 
-#if 0
 s32 FAT_GetUsage(const char *dirpath, u64 *size, u32 *files)
 {
 	DIR_ITER dir;
 
-	u64 totalSz  = 0;
-	u32 totalCnt = 0;
+	u64 totalSz  = 0x4000;
+	u32 totalCnt = 1;
 	s32 ret;
 
 	/* Open directory */
@@ -450,4 +552,3 @@ s32 FAT_GetUsage(const char *dirpath, u64 *size, u32 *files)
 
 	return 0;
 }
-#endif

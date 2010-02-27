@@ -56,9 +56,8 @@ else it is at least 1
 sector is 0 or greater
 buffer is a pointer to the memory to fill
 */
-static inline bool _FAT_disc_readSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, void* buffer) {
-	return disc->readSectors (sector, numSectors, buffer);
-}
+bool _FAT_disc_readSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, void* buffer);
+
 
 /*
 Write numSectors sectors to a disc, starting at sector. 
@@ -67,9 +66,7 @@ else it is at least 1
 sector is 0 or greater
 buffer is a pointer to the memory to read from
 */
-static inline bool _FAT_disc_writeSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, const void* buffer) {
-	return disc->writeSectors (sector, numSectors, buffer);
-}
+bool _FAT_disc_writeSectors (const DISC_INTERFACE* disc, sec_t sector, sec_t numSectors, const void* buffer);
 
 /*
 Reset the card back to a ready state
