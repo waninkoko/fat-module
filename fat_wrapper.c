@@ -38,41 +38,6 @@
 static struct _reent fReent;
 
 
-char *__FAT_CheckPath(const char *path)
-{
-	static char newpath[MAX_FILENAME_LENGTH];
-	char       *ptr;
-
-	/* Copy path */
-	strcpy(newpath, path);
-
-	/* Find '/' */
-	ptr = strchr(newpath, '/');
-	if (ptr) {
-		u32 cnt;
-
-		/* Check path */
-		for (cnt = 0; ptr[cnt]; cnt++) {
-			/* Check character */
-			switch (ptr[cnt]) {
-			case '"':
-			case '*':
-			case ':':
-			case '<':
-			case '>':
-			case '?':
-			case '|':
-				/* Replace character */
-				ptr[cnt] = '_';
-				break;
-			}
-		}
-	}
-
-	/* Return path */
-	return newpath;
-}
-
 s32 __FAT_GetError(void)
 {
 	/* Return error code */
@@ -83,9 +48,6 @@ s32 __FAT_OpenDir(const char *dirpath, DIR_ITER *dir)
 {
 	DIR_ITER         *result = NULL;
 	DIR_STATE_STRUCT *state  = NULL;
-
-	/* Check path */
-	dirpath = __FAT_CheckPath(dirpath);
 
 	/* Allocate memory */
 	state = Mem_Alloc(sizeof(DIR_STATE_STRUCT));
@@ -132,9 +94,6 @@ s32 FAT_Open(const char *path, u32 mode)
 	FILE_STRUCT *fs = NULL;
 
 	s32 ret;
-
-	/* Check path */
-	path = __FAT_CheckPath(path);
 
 	/* Allocate memory */
 	fs = Mem_Alloc(sizeof(FILE_STRUCT));
@@ -215,9 +174,6 @@ s32 FAT_CreateDir(const char *dirpath)
 {
 	s32 ret;
 
-	/* Check path */
-	dirpath = __FAT_CheckPath(dirpath);
-
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -233,9 +189,6 @@ s32 FAT_CreateFile(const char *filepath)
 {
 	FILE_STRUCT fs;
 	s32         ret;
-
-	/* Check path */
-	filepath = __FAT_CheckPath(filepath);
 
 	/* Clear error code */
 	fReent._errno = 0;
@@ -359,9 +312,6 @@ s32 FAT_Delete(const char *path)
 {
 	s32 ret;
 
-	/* Check path */
-	path = __FAT_CheckPath(path);
-
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -426,10 +376,6 @@ s32 FAT_Rename(const char *oldname, const char *newname)
 {
 	s32 ret;
 
-	/* Check paths */
-	oldname = __FAT_CheckPath(oldname);
-	newname = __FAT_CheckPath(newname);
-
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -445,9 +391,6 @@ s32 FAT_Stat(const char *path, void *stats)
 {
 	s32 ret;
 
-	/* Check path */
-	path = __FAT_CheckPath(path);
-
 	/* Clear error code */
 	fReent._errno = 0;
 
@@ -462,9 +405,6 @@ s32 FAT_Stat(const char *path, void *stats)
 s32 FAT_GetVfsStats(const char *path, void *stats)
 {
 	s32 ret;
-
-	/* Check path */
-	path = __FAT_CheckPath(path);
 
 	/* Clear error code */
 	fReent._errno = 0;

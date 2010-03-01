@@ -1,30 +1,27 @@
-/*-------------------------------------------------------------
+/*   
+	Custom IOS Module (FAT)
 
-usbstorage_starlet.c -- USB mass storage support, inside starlet
-Copyright (C) 2009 Kwiirk
+	Copyright (C) 2008 neimod.
+	Copyright (C) 2009 WiiGator.
+	Copyright (C) 2009 Waninkoko.
 
-If this driver is linked before libogc, this will replace the original 
-usbstorage driver by svpe from libogc
-This software is provided 'as-is', without any express or implied
-warranty.  In no event will the authors be held liable for any
-damages arising from the use of this software.
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
 
-Permission is granted to anyone to use this software for any
-purpose, including commercial applications, and to alter it and
-redistribute it freely, subject to the following restrictions:
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-1.	The origin of this software must not be misrepresented; you
-must not claim that you wrote the original software. If you use
-this software in a product, an acknowledgment in the product
-documentation would be appreciated but is not required.
+	You should have received a copy of the GNU General Public License
+	along with this program; if not, write to the Free Software
+	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*/
 
-2.	Altered source versions must be plainly marked as such, and
-must not be misrepresented as being the original software.
-
-3.	This notice may not be removed or altered from any source
-distribution.
-
--------------------------------------------------------------*/
+#include <stdio.h>
+#include <string.h>
 
 #include "mem.h"
 #include "syscalls.h"
@@ -32,35 +29,38 @@ distribution.
 #include "types.h"
 #include "usbstorage.h"
 
-#include <stdio.h>
-#include <string.h>
-
-#define DEVICE_TYPE_WII_USB		(('W'<<24)|('U'<<16)|('S'<<8)|'B')
+/* Device type */
+#define DEVICE_TYPE_WII_USB		(('W'<<24) | ('U'<<16) | ('S'<<8) | 'B')
 
 /* IOCTL commands */
-#define UMS_BASE			(('U'<<24)|('M'<<16)|('S'<<8))
-#define USB_IOCTL_UMS_INIT	        (UMS_BASE+0x1)
-#define USB_IOCTL_UMS_GET_CAPACITY      (UMS_BASE+0x2)
-#define USB_IOCTL_UMS_READ_SECTORS      (UMS_BASE+0x3)
-#define USB_IOCTL_UMS_WRITE_SECTORS	(UMS_BASE+0x4)
-#define USB_IOCTL_UMS_READ_STRESS	(UMS_BASE+0x5)
-#define USB_IOCTL_UMS_SET_VERBOSE	(UMS_BASE+0x6)
+#define UMS_BASE			(('U'<<24) | ('M'<<16) | ('S'<<8))
+#define USB_IOCTL_UMS_INIT	        (UMS_BASE + 0x1)
+#define USB_IOCTL_UMS_GET_CAPACITY      (UMS_BASE + 0x2)
+#define USB_IOCTL_UMS_READ_SECTORS      (UMS_BASE + 0x3)
+#define USB_IOCTL_UMS_WRITE_SECTORS	(UMS_BASE + 0x4)
+#define USB_IOCTL_UMS_READ_STRESS	(UMS_BASE + 0x5)
+#define USB_IOCTL_UMS_SET_VERBOSE	(UMS_BASE + 0x6)
 
 /* Constants */
 #define USB_MAX_SECTORS			64
 
 /* Variables */
-static char fs[] ATTRIBUTE_ALIGN(32) = "/dev/usb/ehc";
+static char fs[] ATTRIBUTE_ALIGN(32) = "/dev/usb2";
 static s32  fd = -1;
 
-static u32  sectorSz = 0;
+static u32 sectorSz = 0;
+
+/* Buffers */
+static ioctlv __iovec[3]   ATTRIBUTE_ALIGN(32);
+static u32    __buffer1[1] ATTRIBUTE_ALIGN(32);
+static u32    __buffer2[1] ATTRIBUTE_ALIGN(32);
 
 
 bool __usbstorage_Read(u32 sector, u32 numSectors, void *buffer)
 {
-	STACK_ALIGN(ioctlv, vector,     3, 32);
-	STACK_ALIGN(u32,   _sector,     1, 32);
-	STACK_ALIGN(u32,   _numSectors, 1, 32);
+	ioctlv *vector = __iovec;
+	u32    *offset = __buffer1;
+	u32    *length = __buffer2;
 
 	u32 cnt, len = (sectorSz * numSectors);
 	s32 ret;
@@ -70,13 +70,13 @@ bool __usbstorage_Read(u32 sector, u32 numSectors, void *buffer)
 		return false;
 
 	/* Sector info */
-	*_sector     = sector;
-	*_numSectors = numSectors;
+	*offset = sector;
+	*length = numSectors;
 
 	/* Setup vector */
-	vector[0].data = _sector;
+	vector[0].data = offset;
 	vector[0].len  = sizeof(u32);
-	vector[1].data = _numSectors;
+	vector[1].data = length;
 	vector[1].len  = sizeof(u32);
 	vector[2].data = buffer;
 	vector[2].len  = len;
@@ -101,9 +101,9 @@ bool __usbstorage_Read(u32 sector, u32 numSectors, void *buffer)
 
 bool __usbstorage_Write(u32 sector, u32 numSectors, void *buffer)
 {
-	STACK_ALIGN(ioctlv, vector,     3, 32);
-	STACK_ALIGN(u32,   _sector,     1, 32);
-	STACK_ALIGN(u32,   _numSectors, 1, 32);
+	ioctlv *vector = __iovec;
+	u32    *offset = __buffer1;
+	u32    *length = __buffer2;
 
 	u32 cnt, len = (sectorSz * numSectors);
 	s32 ret;
@@ -113,13 +113,13 @@ bool __usbstorage_Write(u32 sector, u32 numSectors, void *buffer)
 		return false;
 
 	/* Sector info */
-	*_sector     = sector;
-	*_numSectors = numSectors;
+	*offset = sector;
+	*length = numSectors;
 
 	/* Setup vector */
-	vector[0].data = _sector;
+	vector[0].data = offset;
 	vector[0].len  = sizeof(u32);
-	vector[1].data = _numSectors;
+	vector[1].data = length;
 	vector[1].len  = sizeof(u32);
 	vector[2].data = buffer;
 	vector[2].len  = len;
@@ -144,8 +144,8 @@ bool __usbstorage_Write(u32 sector, u32 numSectors, void *buffer)
 
 s32 __usbstorage_GetCapacity(u32 *_sectorSz)
 {
-	STACK_ALIGN(ioctlv, vector, 1, 32);
-	STACK_ALIGN(u32,    buffer, 1, 32);
+	ioctlv *vector = __iovec;
+	u32    *buffer = __buffer1;
 
 	if (fd >= 0) {
 		s32 ret;
@@ -159,6 +159,7 @@ s32 __usbstorage_GetCapacity(u32 *_sectorSz)
 		/* Get capacity */
 		ret = os_ioctlv(fd, USB_IOCTL_UMS_GET_CAPACITY, 0, 1, vector);
 
+		/* Flush cache */
 		os_sync_after_write(buffer, sizeof(u32));
 
 		/* Set sector size */
@@ -206,13 +207,12 @@ err:
 
 bool usbstorage_Shutdown(void)
 {
-	if (fd >= 0) {
-		/* Close USB device */
+	/* Close USB device */
+	if (fd >= 0)
 		os_close(fd);
 
-		/* Remove descriptor */
-		fd = -1;
-	}
+	/* Reset descriptor */
+	fd = -1;
 
 	return true;
 }
@@ -295,13 +295,14 @@ bool usbstorage_ClearStatus(void)
 }
 
 
+/* Disc interface */
 const DISC_INTERFACE __io_usbstorage = {
 	DEVICE_TYPE_WII_USB,
 	FEATURE_MEDIUM_CANREAD | FEATURE_MEDIUM_CANWRITE | FEATURE_WII_USB,
-	(FN_MEDIUM_STARTUP)&usbstorage_Init,
-	(FN_MEDIUM_ISINSERTED)&usbstorage_IsInserted,
-	(FN_MEDIUM_READSECTORS)&usbstorage_ReadSectors,
+	(FN_MEDIUM_STARTUP)     &usbstorage_Init,
+	(FN_MEDIUM_ISINSERTED)  &usbstorage_IsInserted,
+	(FN_MEDIUM_READSECTORS) &usbstorage_ReadSectors,
 	(FN_MEDIUM_WRITESECTORS)&usbstorage_WriteSectors,
-	(FN_MEDIUM_CLEARSTATUS)&usbstorage_ClearStatus,
-	(FN_MEDIUM_SHUTDOWN)&usbstorage_Shutdown
+	(FN_MEDIUM_CLEARSTATUS) &usbstorage_ClearStatus,
+	(FN_MEDIUM_SHUTDOWN)    &usbstorage_Shutdown
 };
