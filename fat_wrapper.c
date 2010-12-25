@@ -50,7 +50,7 @@ s32 __FAT_OpenDir(DIR *dir, const char *dirpath)
 		return FS_SUCCESS;
 
 	case FR_INVALID_NAME:
-	case FR_NO_PATH:
+//	case FR_NO_PATH:
 		return FS_ENOENT;
 	}
 

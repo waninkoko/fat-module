@@ -87,7 +87,7 @@ bool __ehci_Read(u32 sector, u32 numSectors, void *buffer)
 
 	/* Read data */
 	ret = os_ioctlv(fd, USB_IOCTL_UMS_READ_SECTORS, 2, 1, vector);
-	if (ret < 0)
+	if (ret)
 		return false;
 
 	/* Invalidate cache */
@@ -130,7 +130,7 @@ bool __ehci_Write(u32 sector, u32 numSectors, void *buffer)
 
 	/* Write data */
 	ret = os_ioctlv(fd, USB_IOCTL_UMS_WRITE_SECTORS, 3, 0, vector);
-	if (ret < 0)
+	if (ret)
 		return false;
 
 	/* Invalidate cache */
@@ -175,7 +175,8 @@ s32 __ehci_GetCapacity(u32 *_sectorSz)
 
 bool ehci_Init(void)
 {
-	s32 ret;
+	u32 cnt = 10;
+	s32 ret = 1;
 
 	/* Already open */
 	if (fd >= 0)
@@ -187,7 +188,19 @@ bool ehci_Init(void)
 		return false;
 
 	/* Initialize USB storage */
-	os_ioctlv(fd, USB_IOCTL_UMS_INIT, 0, 0, NULL);
+	while ((cnt-- > 0) && ret) {
+		/* Init UMS */
+		ret = os_ioctlv(fd, USB_IOCTL_UMS_INIT, 0, 0, NULL);
+		if (!ret)
+			break;
+
+		/* Sleep */
+		msleep(1);
+	}
+
+	/* Error */
+	if (ret)
+		goto err;
 
 	/* Get device capacity */
 	ret = __ehci_GetCapacity(NULL);

@@ -171,7 +171,7 @@
 /      function must be added to the project. */
 
 
-#define	_FS_SHARE	1	/* 0:Disable or >=1:Enable */
+#define	_FS_SHARE	16	/* 0:Disable or >=1:Enable */
 /* To enable file shareing feature, set _FS_SHARE to >= 1 and also user
    provided memory handlers, ff_memalloc and ff_memfree function must be
    added to the project. The value defines number of files can be opened
